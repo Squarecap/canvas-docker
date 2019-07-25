@@ -1,23 +1,23 @@
-FROM ubuntu:14.04
+FROM instructure/ruby-passenger:2.4-xenial
 
-MAINTAINER Jay Luker <jay_luker@harvard.edu>
+MAINTAINER Squarecap <help@squarecap.com>
 
-ARG REVISION=master
 ENV RAILS_ENV development
 ENV GEM_HOME /opt/canvas/.gems
-ENV YARN_VERSION 0.27.5-1
+ENV YARN_VERSION 1.16.0-1
+ENV DISABLE_V8_COMPILE_CACHE 1
 
+USER root
 # add nodejs and recommended ruby repos
 RUN apt-get update \
     && apt-get -y install curl software-properties-common \
-    && add-apt-repository -y ppa:brightbox/ruby-ng \
     && apt-get update \
-    && apt-get install -y ruby2.4 ruby2.4-dev supervisor redis-server \
+    && apt-get install -y supervisor redis-server \
         zlib1g-dev libxml2-dev libxslt1-dev libsqlite3-dev postgresql \
         postgresql-contrib libpq-dev libxmlsec1-dev curl make g++ git \
         unzip fontforge libicu-dev
 
-RUN curl -sL https://deb.nodesource.com/setup_6.x | bash \
+RUN curl -sL https://deb.nodesource.com/setup_10.x | bash \
     && curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
     && echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list \
     && apt-get update \
@@ -42,18 +42,16 @@ RUN groupadd -r canvasuser -g 433 && \
 
 RUN if [ -e /var/lib/gems/$RUBY_MAJOR.0/gems/bundler-* ]; then BUNDLER_INSTALL="-i /var/lib/gems/$RUBY_MAJOR.0"; fi \
   && gem uninstall --all --ignore-dependencies --force $BUNDLER_INSTALL bundler \
-  && gem install bundler --no-document -v 1.15.2 \
+  && gem install bundler --no-document -v 1.17.3 \
   && chown -R canvasuser: $GEM_HOME
-
-#RUN gem install bundler --version 1.14.6
 
 COPY assets/dbinit.sh /opt/canvas/dbinit.sh
 COPY assets/start.sh /opt/canvas/start.sh
 RUN chmod 755 /opt/canvas/*.sh
 
 COPY assets/supervisord.conf /etc/supervisor/supervisord.conf
-COPY assets/pg_hba.conf /etc/postgresql/9.3/main/pg_hba.conf
-RUN sed -i "/^#listen_addresses/i listen_addresses='*'" /etc/postgresql/9.3/main/postgresql.conf
+COPY assets/pg_hba.conf /etc/postgresql/9.5/main/pg_hba.conf
+RUN sed -i "/^#listen_addresses/i listen_addresses='*'" /etc/postgresql/9.5/main/postgresql.conf
 
 RUN cd /opt/canvas \
     && git clone https://github.com/instructure/canvas-lms.git \
