@@ -2,12 +2,19 @@ FROM instructure/ruby-passenger:2.4-xenial
 
 MAINTAINER Squarecap <help@squarecap.com>
 
+USER root
+
 ENV RAILS_ENV development
 ENV GEM_HOME /opt/canvas/.gems
 ENV YARN_VERSION 1.16.0-1
 ENV DISABLE_V8_COMPILE_CACHE 1
+ENV PGHOST localhost
+ENV POSTGRES_BIN /usr/lib/postgresql/9.5/bin
+ENV CANVAS_LMS_ADMIN_EMAIL canvas@example.edu
+ENV CANVAS_LMS_ADMIN_PASSWORD ``````
+ENV CANVAS_LMS_ACCOUNT_NAME Canvas Docker
+ENV CANVAS_LMS_STATS_COLLECTION opt_out
 
-USER root
 # add nodejs and recommended ruby repos
 RUN apt-get update \
     && apt-get -y install curl software-properties-common \
@@ -45,13 +52,14 @@ RUN if [ -e /var/lib/gems/$RUBY_MAJOR.0/gems/bundler-* ]; then BUNDLER_INSTALL="
   && gem install bundler --no-document -v 1.17.3 \
   && chown -R canvasuser: $GEM_HOME
 
-COPY assets/dbinit.sh /opt/canvas/dbinit.sh
+COPY assets/dbinit-finish.sh /opt/canvas/dbinit-finish.sh
 COPY assets/start.sh /opt/canvas/start.sh
 RUN chmod 755 /opt/canvas/*.sh
 
 COPY assets/supervisord.conf /etc/supervisor/supervisord.conf
 COPY assets/pg_hba.conf /etc/postgresql/9.5/main/pg_hba.conf
-RUN sed -i "/^#listen_addresses/i listen_addresses='*'" /etc/postgresql/9.5/main/postgresql.conf
+RUN sed -i "/^#listen_addresses/i listen_addresses='*'" /etc/postgresql/9.5/main/postgresql.conf \
+    && ln -s /tmp/.s.PGSQL.5432 /var/run/postgresql/.s.PGSQL.5432
 
 RUN cd /opt/canvas \
     && git clone https://github.com/instructure/canvas-lms.git \
@@ -77,7 +85,25 @@ RUN COMPILE_ASSETS_NPM_INSTALL=0 $GEM_HOME/bin/bundle exec rake canvas:compile_a
 RUN mkdir -p log tmp/pids public/assets public/stylesheets/compiled \
     && touch Gemmfile.lock
 
-RUN service postgresql start && /opt/canvas/dbinit.sh
+RUN echo nocache7
+
+RUN echo "\nhost all all 0.0.0.0/0 md5\n" >> /etc/postgresql/9.5/main/pg_hba.conf
+
+RUN service postgresql start \
+    && sleep 60 \
+    && service postgresql status
+
+RUN cat /var/log/postgresql/postgresql-9.5-main.log
+
+USER postgres
+RUN $POSTGRES_BIN/createuser --superuser canvas \
+    && $POSTGRES_BIN/createdb -E UTF-8 -T template0 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8 --owner canvas canvas_development \
+    && $POSTGRES_BIN/createdb -E UTF-8 -T template0 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8 --owner canvas canvas_queue_development
+
+USER root
+
+RUN $GEM_HOME/bin/bundle exec rake db:initial_setup
+RUN /opt/canvas/dbinit-finish.sh
 
 RUN chown -R canvasuser: /opt/canvas
 RUN chown -R canvasuser: /tmp/attachment_fu/
