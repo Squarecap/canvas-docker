@@ -11,15 +11,12 @@ ENV DISABLE_V8_COMPILE_CACHE 1
 ENV PGHOST localhost
 ENV POSTGRES_BIN /usr/lib/postgresql/9.5/bin
 ENV CANVAS_LMS_ADMIN_EMAIL canvas@example.edu
-ENV CANVAS_LMS_ADMIN_PASSWORD ``````
+ENV CANVAS_LMS_ADMIN_PASSWORD canvas-docker
 ENV CANVAS_LMS_ACCOUNT_NAME Canvas Docker
 ENV CANVAS_LMS_STATS_COLLECTION opt_out
 
-# add nodejs and recommended ruby repos
 RUN apt-get update \
-    && apt-get -y install curl software-properties-common \
-    && apt-get update \
-    && apt-get install -y supervisor redis-server \
+    && apt-get install -y curl software-properties-common supervisor redis-server \
         zlib1g-dev libxml2-dev libxslt1-dev libsqlite3-dev postgresql \
         postgresql-contrib libpq-dev libxmlsec1-dev curl make g++ git \
         unzip fontforge libicu-dev
@@ -58,8 +55,7 @@ RUN chmod 755 /opt/canvas/*.sh
 
 COPY assets/supervisord.conf /etc/supervisor/supervisord.conf
 COPY assets/pg_hba.conf /etc/postgresql/9.5/main/pg_hba.conf
-RUN sed -i "/^#listen_addresses/i listen_addresses='*'" /etc/postgresql/9.5/main/postgresql.conf \
-    && ln -s /tmp/.s.PGSQL.5432 /var/run/postgresql/.s.PGSQL.5432
+RUN sed -i "/^#listen_addresses/i listen_addresses='*'" /etc/postgresql/9.5/main/postgresql.conf
 
 RUN cd /opt/canvas \
     && git clone https://github.com/instructure/canvas-lms.git \
@@ -85,28 +81,20 @@ RUN COMPILE_ASSETS_NPM_INSTALL=0 $GEM_HOME/bin/bundle exec rake canvas:compile_a
 RUN mkdir -p log tmp/pids public/assets public/stylesheets/compiled \
     && touch Gemmfile.lock
 
-RUN echo nocache7
+RUN mkdir -p /var/run/postgresql/9.5-main.pg_stat_tmp \
+    && chown -R postgres /var/run/postgresql \
+    && chown -R postgres /var/lib/postgresql \
+    && chown -R postgres /etc/postgresql \
+    && chown -R canvasuser: /opt/canvas \
+    && chown -R canvasuser: /tmp/attachment_fu/
 
-RUN echo "\nhost all all 0.0.0.0/0 md5\n" >> /etc/postgresql/9.5/main/pg_hba.conf
-
-RUN service postgresql start \
-    && sleep 60 \
-    && service postgresql status
-
-RUN cat /var/log/postgresql/postgresql-9.5-main.log
-
-USER postgres
-RUN $POSTGRES_BIN/createuser --superuser canvas \
-    && $POSTGRES_BIN/createdb -E UTF-8 -T template0 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8 --owner canvas canvas_development \
-    && $POSTGRES_BIN/createdb -E UTF-8 -T template0 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8 --owner canvas canvas_queue_development
-
-USER root
-
-RUN $GEM_HOME/bin/bundle exec rake db:initial_setup
-RUN /opt/canvas/dbinit-finish.sh
-
-RUN chown -R canvasuser: /opt/canvas
-RUN chown -R canvasuser: /tmp/attachment_fu/
+RUN /etc/init.d/postgresql start \
+    && $POSTGRES_BIN/createuser -U postgres --superuser canvas \
+    && $POSTGRES_BIN/createdb -U postgres -E UTF-8 -T template0 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8 --owner canvas canvas_development \
+    && $POSTGRES_BIN/createdb -U postgres -E UTF-8 -T template0 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8 --owner canvas canvas_queue_development \
+    && printf 'canvas@example.edu\ncanvas@example.edu\n' \
+       | $GEM_HOME/bin/bundle exec rake db:initial_setup \
+    && /opt/canvas/dbinit-finish.sh
 
 # postgres
 EXPOSE 5432
